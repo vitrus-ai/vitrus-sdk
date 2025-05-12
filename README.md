@@ -4,7 +4,9 @@
 [![install size](https://badgen.net/packagephobia/install/vitrus?label=npm+install)](https://packagephobia.now.sh/result?p=vitrus)
 [![NPM downloads weekly](https://badgen.net/npm/dw/vitrus?label=npm+downloads&color=purple)](https://www.npmjs.com/package/vitrus)
 
-A TypeScript client for interfacing with the Vitrus server. This library provides a multi Actor/Agent communication model with workflow orchestration.
+![LinkedIn cover - 1 (4)](https://github.com/user-attachments/assets/0edc608b-82af-41f1-9fd5-e693875ca6a9)
+A TypeScript client for multi Agnet-World-Actor orchestration, with easy-to-use spatial perception *Workflows*.
+
 
 ## Documentation
 
