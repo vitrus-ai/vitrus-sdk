@@ -6,11 +6,7 @@
 
 ![LinkedIn cover - 1 (4)](https://github.com/user-attachments/assets/0edc608b-82af-41f1-9fd5-e693875ca6a9)
 A TypeScript client for multi Agnet-World-Actor orchestration, with easy-to-use spatial perception *Workflows*.
-
-
-## Documentation
-
-For detailed documentation go to [Vitrus Documentation](https://vitrus.gitbook.io/docs/concepts).
+For detailed documentation and more examples access [Vitrus Docs](https://vitrus.gitbook.io/docs/concepts).
 
 ## Installation
 
