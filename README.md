@@ -1,4 +1,4 @@
-# Vitrus
+# Vitrus SDK
 [![latest version](https://badgen.net/npm/v/vitrus?label=latest)](https://www.npmjs.com/package/vitrus)
 [![install size](https://badgen.net/packagephobia/install/vitrus?label=npm+install)](https://packagephobia.now.sh/result?p=vitrus)
 [![NPM downloads weekly](https://badgen.net/npm/dw/vitrus?label=npm+downloads&color=purple)](https://www.npmjs.com/package/vitrus)
