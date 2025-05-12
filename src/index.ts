@@ -18,6 +18,9 @@ try {
     console.warn('Could not load version from package.json, using fallback version');
 }
 
+// Define ClientType (matches DAO definition)
+type ClientType = 'actor' | 'agent';
+
 // Types for message handling
 interface HandshakeMessage {
     type: 'HANDSHAKE';
@@ -80,6 +83,32 @@ interface WorkflowResultMessage {
     error?: string;
 }
 
+// --- Workflow Signature Types (Mirrored from DAO) ---
+interface WorkflowParameter {
+  name: string;
+  type: string; 
+}
+
+interface WorkflowSignature {
+  id: string; 
+  description?: string; 
+  parameters: WorkflowParameter[];
+  returnType: string; 
+}
+
+// --- Workflow Listing Messages ---
+interface ListWorkflowsMessage {
+    type: 'LIST_WORKFLOWS';
+    requestId: string;
+}
+
+interface WorkflowListMessage {
+    type: 'WORKFLOW_LIST';
+    requestId: string;
+    workflows?: WorkflowSignature[]; // Use WorkflowSignature[]
+    error?: string;
+}
+
 // Utility for extracting parameter types from function signatures
 function getParameterTypes(func: Function): Array<string> {
     // Convert function to string and analyze parameters
@@ -123,11 +152,15 @@ class Actor {
         // Extract parameter types
         const parameterTypes = getParameterTypes(handler);
         
-        // Register with Vitrus
+        // Register with Vitrus (local handler map)
         this.vitrus.registerActorCommandHandler(this.name, commandName, handler, parameterTypes);
-        
-        // Register command with server
-        this.vitrus.registerCommand(this.name, commandName, parameterTypes);
+
+        // Register command with server *only if* currently connected as this actor
+        if (this.vitrus.getIsAuthenticated() && this.vitrus.getActorName() === this.name) {
+             this.vitrus.registerCommand(this.name, commandName, parameterTypes);
+        } else if (this.vitrus.getDebug()) {
+            console.log(`[Vitrus SDK - Actor.on] Not sending REGISTER_COMMAND for ${commandName} on ${this.name} as SDK is not authenticated as this actor.`);
+        }
         
         return this;
     }
@@ -282,18 +315,15 @@ class Vitrus {
      */
     private async _connect(): Promise<void> {
         try {
-            if (this.debug) console.log('[Vitrus] Attempting to connect to WebSocket server:', this.baseUrl);
+            if (this.debug) console.log(`[Vitrus] Attempting to connect to WebSocket server:`, this.baseUrl);
             
             // Build base connection URL
             const url = new URL(this.baseUrl);
             url.searchParams.append('apiKey', this.apiKey);
+            
+            // Append worldId only if it exists
             if (this.worldId) {
                 url.searchParams.append('worldId', this.worldId);
-            }
-            
-            // Add actor name if available
-            if (this.actorName) {
-                url.searchParams.append('actorName', this.actorName);
             }
             
             // For Node.js environments, require ws module
@@ -314,18 +344,16 @@ class Vitrus {
                     this.connected = true;
                     if (this.debug) console.log('[Vitrus] Connected to WebSocket server');
                     
-                    // Send initial handshake with metadata if this is an actor
-                    if (this.actorName) {
-                        const metadata = this.actorMetadata.get(this.actorName) || {};
-                        const handshake: HandshakeMessage = {
-                            type: 'HANDSHAKE',
-                            apiKey: this.apiKey,
-                            worldId: this.worldId,
-                            actorName: this.actorName,
-                            metadata
-                        };
-                        this.ws?.send(JSON.stringify(handshake));
-                    }
+                    // Send initial handshake. Include actor details if actorName is set.
+                    const handshake: HandshakeMessage = {
+                        type: 'HANDSHAKE',
+                        apiKey: this.apiKey,
+                        worldId: this.worldId, // Send worldId if available
+                        actorName: this.actorName, // Send actorName if available
+                        metadata: this.actorName ? this.actorMetadata.get(this.actorName) || {} : undefined // Send metadata only if actorName is present
+                    };
+                    if (this.debug) console.log('[Vitrus] Sending HANDSHAKE:', handshake);
+                    this.ws?.send(JSON.stringify(handshake));
                 });
 
                 this.ws.on('message', (data: any) => {
@@ -367,7 +395,7 @@ class Vitrus {
             this.connectionPromise = null;
             console.error('Failed to initialize WebSocket:', error);
             if (this.debug) console.log('[Vitrus] Failed to initialize WebSocket:', error);
-            throw new Error('WebSocket initialization failed. In Node.js environments, please install the "ws" package.');
+            throw error; // Re-throw the specific error
         }
     }
 
@@ -509,6 +537,24 @@ class Vitrus {
             return;
         }
 
+        // --- Handle RESPONSE from Actor --- 
+        if (type === 'RESPONSE') {
+            const { requestId, result, error } = message as ResponseMessage;
+            if (this.debug) console.log(`[Vitrus] Received response for requestId: ${requestId}`, { result, error });
+
+            const pending = this.pendingRequests.get(requestId);
+            if (pending) {
+                if (error) {
+                    pending.reject(new Error(error));
+                } else {
+                    pending.resolve(result); // Resolve the promise from actor.run()
+                }
+                this.pendingRequests.delete(requestId);
+            }
+            return;
+        }
+        // --- End Handle RESPONSE ---
+
         // Handle workflow results
         if (type === 'WORKFLOW_RESULT') {
             const { requestId, result, error } = message as WorkflowResultMessage;
@@ -520,6 +566,23 @@ class Vitrus {
                     pending.reject(new Error(error));
                 } else {
                     pending.resolve(result);
+                }
+                this.pendingRequests.delete(requestId);
+            }
+            return;
+        }
+
+        // Handle workflow list response
+        if (type === 'WORKFLOW_LIST') {
+            const { requestId, workflows, error } = message as WorkflowListMessage;
+            if (this.debug) console.log('[Vitrus] Received workflow list for requestId:', requestId, { workflows, error });
+
+            const pending = this.pendingRequests.get(requestId);
+            if (pending) {
+                if (error) {
+                    pending.reject(new Error(error));
+                } else {
+                    pending.resolve(workflows || []); // Resolve with the array of WorkflowSignature
                 }
                 this.pendingRequests.delete(requestId);
             }
@@ -603,7 +666,12 @@ class Vitrus {
      * Authenticate with the API
      */
     async authenticate(actorName?: string, metadata?: any): Promise<boolean> {
-        if (this.debug) console.log('[Vitrus] Authenticating', actorName ? `with actor name: ${actorName}` : '');
+        if (this.debug) console.log(`[Vitrus] Initiating connection sequence...` + (actorName ? ` (intended actor: ${actorName})` : ''));
+
+        // Require worldId if intending to be an actor
+        if (actorName && !this.worldId) {
+            throw new Error('Vitrus SDK requires a worldId to authenticate as an actor.');
+        }
         
         // Store actor name and metadata for use in connection
         this.actorName = actorName;
@@ -611,7 +679,7 @@ class Vitrus {
             this.actorMetadata.set(actorName, metadata);
         }
         
-        // Connect or reconnect with the provided actor name and metadata
+        // Connect or reconnect
         await this.connect(actorName, metadata);
         return this.authenticated;
     }
@@ -639,23 +707,40 @@ class Vitrus {
 
     /**
      * Create or get an actor
+     * If options (metadata) are provided, connects and authenticates as this actor.
+     * If only name is provided, returns a handle for an agent to interact with.
      */
-    actor(name: string, options: any = {}): Actor {
-        if (this.debug) console.log('[Vitrus] Creating actor:', name, options);
-        
-        // Store actor metadata
-        this.actorMetadata.set(name, options);
-        
-        // Create actor instance but don't connect yet
-        const actor = new Actor(this, name, options);
-        
-        // If not authenticated yet, auto-authenticate with this actor name
-        if (!this.authenticated) {
-            this.authenticate(name, options).catch(error => {
-                console.error(`Failed to auto-authenticate actor ${name}:`, error);
-            });
+    async actor(name: string, options: any = {}): Promise<Actor> {
+        if (this.debug) console.log('[Vitrus] Creating/getting actor handle:', name, options);
+
+        // Require worldId to create/authenticate as an actor
+        if (Object.keys(options).length > 0 && !this.worldId) {
+            throw new Error('Vitrus SDK requires a worldId to create/authenticate as an actor.');
         }
-        
+
+        // Store actor metadata immediately if provided
+        if (Object.keys(options).length > 0) {
+            this.actorMetadata.set(name, options);
+        }
+
+        const actor = new Actor(this, name, options);
+
+        // If options (metadata) are provided, it implies intent to *be* this actor,
+        // so authenticate (and wait for it) if necessary.
+        if (Object.keys(options).length > 0 && (!this.authenticated || this.actorName !== name)) {
+            if (this.debug) console.log(`[Vitrus] Metadata provided for actor ${name}, ensuring authentication as this actor...`);
+            try {
+                await this.authenticate(name, options);
+                if (this.debug) console.log(`[Vitrus] Successfully authenticated as actor ${name}.`);
+                
+                // After successful auth, ensure any commands queued via .on() are registered
+                await this.registerPendingCommands(name);
+            } catch (error) {
+                console.error(`Failed to auto-authenticate actor ${name}:`, error);
+                throw error;
+            }
+        }
+
         return actor;
     }
 
@@ -673,7 +758,12 @@ class Vitrus {
     async runCommand(actorName: string, commandName: string, args: any[]): Promise<any> {
         if (this.debug) console.log('[Vitrus] Running command:', { actorName, commandName, args });
         
-        // If not authenticated yet, auto-authenticate
+        // Require worldId to run commands
+        if (!this.worldId) {
+            throw new Error('Vitrus SDK requires a worldId to run commands on actors.');
+        }
+        
+        // If not authenticated yet, auto-authenticate (will default to agent if no actor context)
         if (!this.authenticated) {
             await this.authenticate();
         }
@@ -689,6 +779,7 @@ class Vitrus {
                 commandName,
                 args,
                 requestId,
+                // worldId needs to be added to CommandMessage if DAO requires it
             };
 
             this.sendMessage(command)
@@ -705,12 +796,12 @@ class Vitrus {
      */
     async workflow(workflowName: string, args: any = {}): Promise<any> {
         if (this.debug) console.log('[Vitrus] Running workflow:', { workflowName, args });
-        
-        // Automatically authenticate if not authenticated yet
+
+        // Automatically authenticate if not authenticated yet (will connect as agent by default)
         if (!this.authenticated) {
             await this.authenticate();
         }
-        
+
         const requestId = this.generateRequestId();
 
         return new Promise((resolve, reject) => {
@@ -750,6 +841,71 @@ class Vitrus {
         // Implementation would store the record
         // For now, just return success
         return name || this.generateRequestId();
+    }
+
+    /**
+     * List available workflows on the server, including their signatures
+     */
+    async list_workflows(): Promise<WorkflowSignature[]> {
+        if (this.debug) console.log('[Vitrus] Requesting workflow list with signatures...');
+
+        // Automatically authenticate if not authenticated yet
+        if (!this.authenticated) {
+            await this.authenticate();
+        }
+
+        const requestId = this.generateRequestId();
+
+        return new Promise((resolve, reject) => {
+            this.pendingRequests.set(requestId, { resolve, reject });
+
+            const message: ListWorkflowsMessage = {
+                type: 'LIST_WORKFLOWS',
+                requestId,
+            };
+
+            this.sendMessage(message)
+                .catch((error) => {
+                    if (this.debug) console.log('[Vitrus] Failed to send LIST_WORKFLOWS message:', error);
+                    this.pendingRequests.delete(requestId);
+                    reject(error);
+                });
+        });
+    }
+
+    /**
+     * Helper to register commands that might have been added via actor.on()
+     * *before* the initial authentication for that actor completed.
+     */
+    private async registerPendingCommands(actorName: string): Promise<void> {
+        const handlers = this.actorCommandHandlers.get(actorName);
+        const signatures = this.actorCommandSignatures.get(actorName);
+        if (!handlers || !signatures) return;
+
+        if (this.debug) console.log(`[Vitrus] Registering pending commands for actor ${actorName}...`);
+
+        for (const [commandName, parameterTypes] of signatures.entries()) {
+            if (handlers.has(commandName)) { // Ensure handler still exists
+                 try {
+                    await this.registerCommand(actorName, commandName, parameterTypes);
+                 } catch (error) {
+                    console.error(`[Vitrus] Error registering pending command ${commandName} for actor ${actorName}:`, error);
+                 }
+            }
+        }
+    }
+
+    // --- Public Getters ---
+    getIsAuthenticated(): boolean {
+        return this.authenticated;
+    }
+
+    getActorName(): string | undefined {
+        return this.actorName;
+    }
+
+    getDebug(): boolean {
+        return this.debug;
     }
 }
 
