@@ -5,7 +5,7 @@
 [![NPM downloads weekly](https://badgen.net/npm/dw/vitrus?label=npm+downloads&color=purple)](https://www.npmjs.com/package/vitrus)
 
 ![LinkedIn cover - 1 (4)](https://github.com/user-attachments/assets/0edc608b-82af-41f1-9fd5-e693875ca6a9)
-A TypeScript client for multi Agnet-World-Actor orchestration, with easy-to-use spatial perception *Workflows*.
+A TypeScript client for multi Agent-World-Actor orchestration, with easy-to-use spatial perception *Workflows*.
 For detailed documentation and more examples access [Vitrus Docs](https://vitrus.gitbook.io/docs/concepts).
 
 ## Installation
