@@ -93,7 +93,8 @@ interface JSONSchema {
   additionalProperties?: boolean;
 }
 
-interface OpenAIFunction {
+// Renamed from OpenAIFunction
+interface OpenAITool {
   name: string;
   description?: string;
   parameters: JSONSchema;
@@ -102,7 +103,7 @@ interface OpenAIFunction {
 
 interface WorkflowDefinition {
   type: 'function';
-  function: OpenAIFunction;
+  function: OpenAITool; // Use OpenAITool
 }
 
 // --- Workflow Listing Messages ---

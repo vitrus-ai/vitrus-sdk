@@ -4,7 +4,11 @@
 [![install size](https://badgen.net/packagephobia/install/vitrus?label=npm+install)](https://packagephobia.now.sh/result?p=vitrus)
 [![NPM downloads weekly](https://badgen.net/npm/dw/vitrus?label=npm+downloads&color=purple)](https://www.npmjs.com/package/vitrus)
 
-A TypeScript client for interfacing with the Vitrus WebSocket server. This library provides an Actor/Agent communication model with workflow orchestration.
+A TypeScript client for interfacing with the Vitrus server. This library provides a multi Actor/Agent communication model with workflow orchestration.
+
+## Documentation
+
+For detailed documentation go to [Vitrus Documentation](https://vitrus.gitbook.io/docs/concepts).
 
 ## Installation
 
@@ -12,40 +16,85 @@ A TypeScript client for interfacing with the Vitrus WebSocket server. This libra
 # Using npm
 npm install vitrus
 
-# Using yarn
-yarn add vitrus
-
 # Using bun
 bun add vitrus
 ```
 
-## Basic Workflow
+## Authentication
+
+[Get an API Key](https://app.vitrus.ai)
 
 ```typescript
 import Vitrus from "vitrus";
 
 // Initialize the client with all options
 const vitrus = new Vitrus({
-  apiKey: "<your-api-key>",
-});
-
-// perception encoders
-const results = await vitrus.workflow("perception-encoder", {
-  image_url: "image_url",
-  image_base64: "image_base64",
+  apiKey: process.env["VITRUS_API_KEY"],
 });
 ```
 
+<br/>
+
+# Workflows
+
+**Workflows** have a similar schema as AI tools, so it connects perfectly with [OpenAI function Calling](https://platform.openai.com/docs/guides/function-calling?api-mode=chat). Making Workflows great to compose complex physical tasks with AI Agents. The following is a simple example of how to run a workflow:
+
+```typescript
+// running a basic workflow
+const result = await vitrus.workflow("hello-world", {
+  prompt: "hello world!",
+});
+
+console.log(result);
+```
+
+Workflows are executed in Cloud GPUs (e.g. `Nvidia A100`), and combine multiple AI models for complex tasks.
+
 ## Available Workflows
 
-The current available workflows are:
+We are continously updating the available workflows, and keeping them up to date with state-of-the-art (SOTA) AI models. For the latest list of workflows, you can execute:
 
-| name                 | price (USD) | avg. time |
-| -------------------- | ----------- | --------- |
-| `perception-encoder` | $0.2        | 7s        |
-| `generate-object`    | $0.4        | 120s      |
+```ts
+const workflows = vitrus.list_workflows();
+console.log(workflows);
+```
 
-## Custom base URL
+<details><summary>Example JSON Response</summary>
+
+```json
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "perception-encoder",
+      "description": "Encodes perception data based on specified parameters.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "inputData": {
+            "type": "object",
+            "description": "The raw data to encode.",
+            "additionalProperties": true
+          },
+          "encodingType": {
+            "type": "string",
+            "description": "The encoding method to use (e.g., 'base64', 'json')."
+          }
+        },
+        "required": ["inputData"]
+      }
+    }
+  }
+]
+```
+
+</details>
+
+<br/>
+
+# Worlds and Actors
+
+Create a world at [app.vitrus.ai](https://app.vitrus.ai).
 
 ```typescript
 import Vitrus from "vitrus";
@@ -57,43 +106,48 @@ const vitrus = new Vitrus({
 });
 ```
 
-# Basic World
+## Actors
 
 ```ts
 import Vitrus from "vitrus";
 
-//authenticate with API key
 const vitrus = new Vitrus({
-  world: "world-uuid",
-  apiKey: "...",
+  apiKey: "<your-api-key>",
+  world: "<world-id>",
 });
 
-//creates or finds an actor named <actor-name>; by default picks the last one
-const actor = vitrus.actor("<actor-name>", { details: "it's a robot" });
-
-/* This registers an action and
-everytime any agent calls this actor's action, it will run the following*/
-actor.on("<action-name>", () => {
-  const output = "hellow world";
-  return output;
+const actor = await vitrus.actor("forest", {
+  human: "Tom Hanks",
+  eyes: "green",
 });
-```
 
-## API Reference
-
-### Vitrus Class
-
-#### Constructor
-
-```typescript
-new Vitrus({
-  apiKey: string,
-  world: string, // Optional
-  baseUrl: string, // Optional default is dao.vitrus.ai
-  debug: true,
+actor.on("walk", (args: any) => {
+  console.log("received", args);
+  return "run forest, run!";
 });
 ```
 
-### Descentralized Actor Orchestration (DAO)
+## Agents
 
-Vitrus workflows, worlds, actors and agents runs on top of DAO. A lightweight cloud system that enables the cross-communication of agents-world-actors. The best illustration of this system is: 木.
+On the Agent side, once connected to, the actor can be treated as "functions".
+
+```ts
+import Vitrus from "vitrus";
+
+const vitrus = new Vitrus({
+  apiKey: "<your-api-key>",
+  world: "<world-id>", //must match actor's world
+});
+
+const actor = await vitrus.actor("forest");
+
+const resp = await actor.run("walk", {
+  direction: "front",
+});
+```
+
+---
+
+# How Vitrus works internally
+
+Vitrus workflows, worlds, actors and agents runs on top of Distributed Actor Orchestration (DAO). A lightweight cloud system that enables the cross-communication of agents-world-actors.
