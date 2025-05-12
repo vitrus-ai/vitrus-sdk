@@ -1,18 +1,35 @@
 {
   "name": "vitrus",
-  "version": "0.0.1",
-  "module": "src/index.ts",
-  "type": "module",
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
+  "version": "0.1.4",
+  "description": "TypeScript client for interfacing with the Vitrus WebSocket server",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
-    "dev": "bun run --watch src/index.ts",
     "test": "bun test",
-    "publish": "bun build --target bun --outfile dist/vitrus.js && bun publish"
+    "prepublishOnly": "bun run build",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "vitrus",
+    "websocket",
+    "actors",
+    "agents",
+    "workflows"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "ws": "^8.0.0"
+  },
+  "optionalDependencies": {
+    "ws": "^8.0.0"
   }
 }
