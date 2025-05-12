@@ -83,17 +83,26 @@ interface WorkflowResultMessage {
     error?: string;
 }
 
-// --- Workflow Signature Types (Mirrored from DAO) ---
-interface WorkflowParameter {
-  name: string;
-  type: string; 
+// --- OpenAI Tool Schema Types for Workflows (Mirrored from DAO) ---
+interface JSONSchema {
+  type: 'object' | 'string' | 'number' | 'boolean' | 'array';
+  description?: string;
+  properties?: Record<string, JSONSchema>;
+  required?: string[];
+  items?: JSONSchema;
+  additionalProperties?: boolean;
 }
 
-interface WorkflowSignature {
-  id: string; 
-  description?: string; 
-  parameters: WorkflowParameter[];
-  returnType: string; 
+interface OpenAIFunction {
+  name: string;
+  description?: string;
+  parameters: JSONSchema;
+  strict?: boolean;
+}
+
+interface WorkflowDefinition {
+  type: 'function';
+  function: OpenAIFunction;
 }
 
 // --- Workflow Listing Messages ---
@@ -105,7 +114,7 @@ interface ListWorkflowsMessage {
 interface WorkflowListMessage {
     type: 'WORKFLOW_LIST';
     requestId: string;
-    workflows?: WorkflowSignature[]; // Use WorkflowSignature[]
+    workflows?: WorkflowDefinition[]; // Use WorkflowDefinition[]
     error?: string;
 }
 
@@ -582,7 +591,7 @@ class Vitrus {
                 if (error) {
                     pending.reject(new Error(error));
                 } else {
-                    pending.resolve(workflows || []); // Resolve with the array of WorkflowSignature
+                    pending.resolve(workflows || []); // Resolve with the array of WorkflowDefinition
                 }
                 this.pendingRequests.delete(requestId);
             }
@@ -844,10 +853,10 @@ class Vitrus {
     }
 
     /**
-     * List available workflows on the server, including their signatures
+     * List available workflows on the server, including their definitions (OpenAI Tool Schema)
      */
-    async list_workflows(): Promise<WorkflowSignature[]> {
-        if (this.debug) console.log('[Vitrus] Requesting workflow list with signatures...');
+    async list_workflows(): Promise<WorkflowDefinition[]> {
+        if (this.debug) console.log('[Vitrus] Requesting workflow list with definitions...');
 
         // Automatically authenticate if not authenticated yet
         if (!this.authenticated) {

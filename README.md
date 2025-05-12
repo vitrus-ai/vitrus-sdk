@@ -1,4 +1,5 @@
 # Vitrus
+
 [![latest version](https://badgen.net/npm/v/vitrus?label=latest)](https://www.npmjs.com/package/vitrus)
 [![install size](https://badgen.net/packagephobia/install/vitrus?label=npm+install)](https://packagephobia.now.sh/result?p=vitrus)
 [![NPM downloads weekly](https://badgen.net/npm/dw/vitrus?label=npm+downloads&color=purple)](https://www.npmjs.com/package/vitrus)
@@ -26,14 +27,12 @@ import Vitrus from "vitrus";
 // Initialize the client with all options
 const vitrus = new Vitrus({
   apiKey: "<your-api-key>",
-  world: "<world-id>", //optional, needed only if using actors and scenes
-  debug: true, //optional, default is false
-  baseUrl: "ws://host:port", //optional
 });
 
 // perception encoders
-const output = await vitrus.workflow("perception-encoder", {
-  image: "image_url",
+const results = await vitrus.workflow("perception-encoder", {
+  image_url: "image_url",
+  image_base64: "image_base64",
 });
 ```
 
@@ -94,5 +93,7 @@ new Vitrus({
   debug: true,
 });
 ```
+
 ### Descentralized Actor Orchestration (DAO)
+
 Vitrus workflows, worlds, actors and agents runs on top of DAO. A lightweight cloud system that enables the cross-communication of agents-world-actors. The best illustration of this system is: 木.
