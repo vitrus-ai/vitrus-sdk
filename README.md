@@ -1,4 +1,8 @@
-# Vitrus SDK
+# Vitrus
+![latest version](https://badgen.net/npm/v/vitrus?label=latest)](https://www.npmjs.com/package/vitrus)
+[![license](https://badgen.net/github/vitrus-ai/vitrus-sdk?color=cyan)](https://github.com/vitrus-ai/vitrus-sdk/blob/main/LICENSE)
+[![install size](https://badgen.net/packagephobia/install/vitrus?label=npm+install)](https://packagephobia.now.sh/result?p=vitrus)
+[![NPM downloads weekly](https://badgen.net/npm/dw/vitrus?label=npm+downloads&color=purple)](https://www.npmjs.com/package/vitrus)
 
 A TypeScript client for interfacing with the Vitrus WebSocket server. This library provides an Actor/Agent communication model with workflow orchestration.
 
