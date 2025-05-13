@@ -197,6 +197,13 @@ class Actor {
         this.metadata = { ...this.metadata, ...newMetadata };
         // TODO: Send metadata update to server
     }
+
+    /**
+     * Disconnect the actor if the SDK is currently connected as this actor.
+     */
+    disconnect(): void {
+        this.vitrus.disconnectIfActor(this.name);
+    }
 }
 
 // Scene class
@@ -246,12 +253,12 @@ class Scene {
     }
 }
 
-// EventEmitter-like interface
+// EventEmitter-like interface (Node.js/ws style)
 interface EventEmitter {
     on(event: string, listener: (...args: any[]) => void): void;
     removeListener(event: string, listener: (...args: any[]) => void): void;
     send(data: string): void;
-    close(): void;
+    close(code?: number, reason?: string): void;
     readonly readyState: number;
 }
 
@@ -326,10 +333,6 @@ class Vitrus {
     }
 
     private async _establishWebSocketConnection(): Promise<void> {
-        // This method will contain the WebSocket new WS(), onopen, onmessage, onerror, onclose setup,
-        // and the call to await this.waitForAuthentication().
-        // Errors thrown here or in waitForAuthentication will propagate up.
-
         if (this.debug) console.log(`[Vitrus] Attempting to connect to WebSocket server:`, this.baseUrl);
 
         const url = new URL(this.baseUrl);
@@ -338,15 +341,29 @@ class Vitrus {
             url.searchParams.append('worldId', this.worldId);
         }
 
-        const WS = typeof require !== 'undefined' ? require('ws') : WebSocket;
-        this.ws = new WS(url.toString()) as EventEmitter;
+        const isNodeEnvironment = typeof require !== 'undefined';
+        const WS = isNodeEnvironment ? require('ws') : WebSocket;
 
-        if (!this.ws) {
-            throw new Error('Failed to create WebSocket instance');
+        if (!WS) {
+             throw new Error('WebSocket constructor not found.'); // Should not happen if logic is correct
         }
 
-        // Setup event handlers
-        this.ws.on('open', () => {
+        const rawWs = new WS(url.toString());
+
+        if (!isNodeEnvironment) {
+            // Browser environment: Wrap the native WebSocket to provide .on() and .removeListener()
+            this.ws = this.createBrowserWsWrapper(rawWs as unknown as globalThis.WebSocket);
+        } else {
+            // Node/Bun environment: Use ws instance directly
+            this.ws = rawWs as EventEmitter; // Cast to our EventEmitter interface
+        }
+
+        if (!this.ws) {
+            throw new Error('Failed to create or wrap WebSocket instance');
+        }
+
+        // Setup event handlers using Node/Bun .on() syntax
+        this.ws.on('open', () => { 
             this.connected = true;
             if (this.debug) console.log('[Vitrus] Connected to WebSocket server (onopen)');
             
@@ -366,39 +383,38 @@ class Vitrus {
                     this._connectionReject = null; 
                 }
                 if (this.ws) {
-                    // Attempt to close the WebSocket connection if handshake send fails
                     try {
                         this.ws.close();
                     } catch (closeError) {
-                        // Ignore errors during close if it's already closing or problematic
                         if (this.debug) console.log('[Vitrus] Error attempting to close WebSocket after failed handshake send:', closeError);
                     }
                 }
             });
         });
 
-        this.ws.on('message', (data: any) => {
-             try {
-                const message = JSON.parse(typeof data === 'string' ? data : data.toString());
-                if (this.debug && message.type !== 'HANDSHAKE_RESPONSE') { // Avoid double logging handshake response if waitForAuth also logs it
+        this.ws.on('message', (data: any) => { // Reverted to .on('message', ...)
+            try {
+                // Node/ws provides data directly
+                const message = JSON.parse(typeof data === 'string' ? data : data.toString()); 
+                if (this.debug && message.type !== 'HANDSHAKE_RESPONSE') {
                     console.log('[Vitrus] Received message (generic handler):', message);
                 }
-                this.handleMessage(message); // Generic handler, also used by waitForAuthentication's specific listener
+                this.handleMessage(message); 
             } catch (error) {
                 console.error('Error parsing WebSocket message:', error);
             }
         });
 
-        this.ws.on('error', (error: Error) => {
+        this.ws.on('error', (error: Error) => { // Reverted to .on('error', ...)
             if (!this.connected) { // Error before connection fully established
-                let specificError = error;
-                if (this.worldId) {
-                    specificError = new Error(`Connection Failed: Unable to connect to world '${this.worldId}'. This world may not exist, or the API key may be invalid for the initial connection URL. Original: ${error.message}`);
-                } else {
-                    specificError = new Error(`Connection Failed: Unable to establish initial WebSocket connection. Original: ${error.message}`);
-                }
-                console.error(specificError.message);
-                if (this.debug) console.log('[Vitrus] WebSocket connection error (pre-connect):', specificError);
+                 let specificError = error; // Use the actual error object from ws
+                 if (this.worldId) {
+                     specificError = new Error(`Connection Failed: Unable to connect to world '${this.worldId}'. This world may not exist, or the API key may be invalid. Original: ${error.message}`);
+                 } else {
+                     specificError = new Error(`Connection Failed: Unable to establish initial WebSocket connection. Original: ${error.message}`);
+                 }
+                 console.error(specificError.message);
+                 if (this.debug) console.log('[Vitrus] WebSocket connection error (pre-connect):', specificError);
                 if (this._connectionReject) {
                     this._connectionReject(specificError);
                     this._connectionReject = null; // Prevent multiple rejections
@@ -406,25 +422,24 @@ class Vitrus {
             } else { // Error after connection
                 console.error('WebSocket error (post-connect):', error.message);
                  if (this.debug) console.log('[Vitrus] WebSocket error (post-connect):', error);
-                // For post-connection errors, we might notify active operations or attempt reconnection later.
             }
         });
 
-        this.ws.on('close', () => {
+        this.ws.on('close', (code: number, reason: Buffer) => { // Reverted to .on('close', ...)
             const wasConnected = this.connected;
             this.connected = false;
             this.authenticated = false;
+            const reasonStr = reason.toString();
 
             if (!wasConnected) { // Closed before connection was fully established and authenticated
-                if (this.debug) console.log('[Vitrus] WebSocket closed before full connection/authentication.');
-                // If _connectionReject is still set, it means onerror didn't fire or didn't reject yet for some reason.
+                 if (this.debug) console.log(`[Vitrus] WebSocket closed before full connection/authentication. Code: ${code}, Reason: ${reasonStr}`);
                 if (this._connectionReject) {
-                    this._connectionReject(new Error('Connection Attempt Failed: WebSocket closed before connection could be established.'));
+                    this._connectionReject(new Error(`Connection Attempt Failed: WebSocket closed before connection could be established. Code: ${code}, Reason: ${reasonStr}`));
                     this._connectionReject = null;
                 }
             } else {
-                if (this.debug) console.log('[Vitrus] Disconnected from WebSocket server (onclose after connection).');
-                const closeError = new Error('Connection Lost: The connection to the Vitrus server was lost unexpectedly.');
+                 if (this.debug) console.log(`[Vitrus] Disconnected from WebSocket server (onclose after connection). Code: ${code}, Reason: ${reasonStr}`);
+                 const closeError = new Error(`Connection Lost: The connection to the Vitrus server was lost. Code: ${code}, Reason: ${reasonStr}`);
                 console.error(closeError.message);
                 // Reject any pending requests
                 for (const [requestId, { reject }] of this.pendingRequests.entries()) {
@@ -436,10 +451,59 @@ class Vitrus {
         });
 
         // Now, wait for the authentication process to complete.
-        // waitForAuthentication will listen for the HANDSHAKE_RESPONSE or reject if it fails.
         await this.waitForAuthentication();
-        // If waitForAuthentication succeeds, the main promise in connect() will resolve.
-        // If it fails, it will throw an error, caught by connect(), which then rejects its promise.
+    }
+
+    // Helper to create a wrapper for Browser WebSocket
+    private createBrowserWsWrapper(browserWs: globalThis.WebSocket): EventEmitter {
+        const listeners: { [key: string]: ((...args: any[]) => void)[] } = {};
+
+        const getListeners = (event: string) => {
+            if (!listeners[event]) {
+                listeners[event] = [];
+            }
+            return listeners[event];
+        };
+
+        const wrapper: EventEmitter = {
+            on: (event: string, listener: (...args: any[]) => void) => {
+                getListeners(event).push(listener);
+                switch (event) {
+                    case 'open':
+                        browserWs.onopen = (ev: Event) => getListeners('open').forEach(l => l(ev));
+                        break;
+                    case 'message':
+                        browserWs.onmessage = (ev: MessageEvent) => getListeners('message').forEach(l => l(ev.data));
+                        break;
+                    case 'error':
+                        browserWs.onerror = (ev: Event) => getListeners('error').forEach(l => l(ev)); // Browser error is just Event
+                        break;
+                    case 'close':
+                        browserWs.onclose = (ev: CloseEvent) => getListeners('close').forEach(l => l(ev.code, ev.reason));
+                        break;
+                }
+            },
+            removeListener: (event: string, listener: (...args: any[]) => void) => {
+                const eventListeners = getListeners(event);
+                const index = eventListeners.indexOf(listener);
+                if (index > -1) {
+                    eventListeners.splice(index, 1);
+                }
+                // If no listeners remain for an event, clear the native handler
+                if (eventListeners.length === 0) {
+                    switch (event) {
+                        case 'open': browserWs.onopen = null; break;
+                        case 'message': browserWs.onmessage = null; break;
+                        case 'error': browserWs.onerror = null; break;
+                        case 'close': browserWs.onclose = null; break;
+                    }
+                }
+            },
+            send: (data: string) => browserWs.send(data),
+            close: (code?: number, reason?: string) => browserWs.close(code, reason),
+            get readyState() { return browserWs.readyState; },
+        };
+        return wrapper;
     }
 
     private async waitForConnection(): Promise<void> {
@@ -516,12 +580,12 @@ class Vitrus {
                         if (this.ws) {
                             this.ws.removeListener('message', handleAuthResponseWrapper);
                         }
-                        reject(new Error(errorMessage)); // Use the potentially improved error message
+                        reject(new Error(errorMessage));
                     }
                 }
             };
 
-            const handleAuthResponseWrapper = (data: any) => {
+            const handleAuthResponseWrapper = (data: any) => { // Node style takes data directly
                 try {
                     const message = JSON.parse(typeof data === 'string' ? data : data.toString());
                     handleAuthResponse(message);
@@ -531,7 +595,49 @@ class Vitrus {
             };
 
             if (this.ws) {
+                // Use Node/Bun style .on() and .removeListener()
                 this.ws.on('message', handleAuthResponseWrapper);
+
+                // Add temporary error/close handlers for auth period using .on()
+                const handleAuthError = (error: Error) => {
+                    if (!this.authenticated) {
+                        console.error('[Vitrus] WebSocket error during authentication wait:', error.message);
+                        reject(new Error(`WebSocket error during authentication: ${error.message}`));
+                        // Clean up listeners after handling the error
+                        this.ws?.removeListener('message', handleAuthResponseWrapper);
+                        this.ws?.removeListener('error', handleAuthError);
+                        this.ws?.removeListener('close', handleAuthClose);
+                    }
+                };
+                const handleAuthClose = (code: number, reason: Buffer) => {
+                     if (!this.authenticated) {
+                        const reasonStr = reason.toString();
+                        console.error(`[Vitrus] WebSocket closed during authentication wait. Code: ${code}, Reason: ${reasonStr}`);
+                        reject(new Error(`WebSocket closed during authentication. Code: ${code}, Reason: ${reasonStr}`));
+                         // Clean up listeners after handling the close
+                        this.ws?.removeListener('message', handleAuthResponseWrapper);
+                        this.ws?.removeListener('error', handleAuthError);
+                        this.ws?.removeListener('close', handleAuthClose);
+                     }
+                };
+
+                this.ws.on('error', handleAuthError);
+                this.ws.on('close', handleAuthClose);
+
+                // The cleanup for successful auth or specific failure is handled inside handleAuthResponse
+                 // We also need to remove error/close listeners there.
+                 const originalResolve = resolve;
+                 const originalReject = reject;
+                 resolve = () => {
+                     this.ws?.removeListener('error', handleAuthError);
+                     this.ws?.removeListener('close', handleAuthClose);
+                     originalResolve();
+                 }
+                 reject = (err) => {
+                      this.ws?.removeListener('error', handleAuthError);
+                      this.ws?.removeListener('close', handleAuthClose);
+                      originalReject(err);
+                 }
             }
         });
     }
@@ -963,6 +1069,26 @@ class Vitrus {
 
     getDebug(): boolean {
         return this.debug;
+    }
+
+    /**
+     * Disconnects the WebSocket if the SDK is currently authenticated as the specified actor.
+     * @param actorName The name of the actor to disconnect.
+     */
+    disconnectIfActor(actorName: string): void {
+        if (this.actorName === actorName && this.authenticated && this.ws && this.ws.readyState === Vitrus.OPEN) {
+            if (this.debug) console.log(`[Vitrus] Actor '${actorName}' is disconnecting.`);
+            this.ws.close(); 
+            // The onclose handler will manage further state changes (this.connected, this.authenticated, etc.)
+        } else if (this.debug) {
+            if (this.actorName !== actorName) {
+                console.log(`[Vitrus] disconnectIfActor: SDK not connected as '${actorName}' (currently: ${this.actorName || 'agent/none'}). No action taken.`);
+            } else if (!this.authenticated) {
+                console.log(`[Vitrus] disconnectIfActor: SDK not authenticated as '${actorName}'. No action taken.`);
+            } else {
+                console.log(`[Vitrus] disconnectIfActor: WebSocket for '${actorName}' not open or available. No action taken.`);
+            }
+        }
     }
 }
 
