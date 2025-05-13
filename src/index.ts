@@ -767,25 +767,25 @@ class Vitrus {
      * If options (metadata) are provided, connects and authenticates as this actor.
      * If only name is provided, returns a handle for an agent to interact with.
      */
-    async actor(name: string, options: any = {}): Promise<Actor> {
+    async actor(name: string, options?: any): Promise<Actor> {
         if (this.debug) console.log('[Vitrus] Creating/getting actor handle:', name, options);
 
-        // Require worldId to create/authenticate as an actor
-        if (Object.keys(options).length > 0 && !this.worldId) {
+        // Require worldId to create/authenticate as an actor if options are provided
+        if (options !== undefined && !this.worldId) {
             throw new Error('Vitrus SDK requires a worldId to create/authenticate as an actor.');
         }
 
         // Store actor metadata immediately if provided
-        if (Object.keys(options).length > 0) {
+        if (options !== undefined) {
             this.actorMetadata.set(name, options);
         }
 
-        const actor = new Actor(this, name, options);
+        const actor = new Actor(this, name, options !== undefined ? options : {});
 
-        // If options (metadata) are provided, it implies intent to *be* this actor,
+        // If options are provided (even an empty object), it implies intent to *be* this actor,
         // so authenticate (and wait for it) if necessary.
-        if (Object.keys(options).length > 0 && (!this.authenticated || this.actorName !== name)) {
-            if (this.debug) console.log(`[Vitrus] Metadata provided for actor ${name}, ensuring authentication as this actor...`);
+        if (options !== undefined && (!this.authenticated || this.actorName !== name)) {
+            if (this.debug) console.log(`[Vitrus] Options provided for actor ${name}, ensuring authentication as this actor...`);
             try {
                 await this.authenticate(name, options);
                 if (this.debug) console.log(`[Vitrus] Successfully authenticated as actor ${name}.`);
