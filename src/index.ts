@@ -341,16 +341,16 @@ class Vitrus {
             url.searchParams.append('worldId', this.worldId);
         }
 
-        const isNodeEnvironment = typeof require !== 'undefined';
-        const WS = isNodeEnvironment ? require('ws') : WebSocket;
+        const isBrowserEnvironment = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+        const SelectedWS = isBrowserEnvironment ? window.WebSocket : require('ws'); // Renamed to avoid conflict
 
-        if (!WS) {
-             throw new Error('WebSocket constructor not found.'); // Should not happen if logic is correct
+        if (!SelectedWS) {
+             throw new Error('WebSocket constructor not found. Environment detection failed or WebSocket is not available.');
         }
 
-        const rawWs = new WS(url.toString());
+        const rawWs = new SelectedWS(url.toString());
 
-        if (!isNodeEnvironment) {
+        if (isBrowserEnvironment) {
             // Browser environment: Wrap the native WebSocket to provide .on() and .removeListener()
             this.ws = this.createBrowserWsWrapper(rawWs as unknown as globalThis.WebSocket);
         } else {

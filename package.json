@@ -1,12 +1,15 @@
 {
   "name": "vitrus",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "description": "TypeScript client for interfacing with the Vitrus SDK",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist"
   ],
+  "browser": {
+    "ws": false
+  },
   "scripts": {
     "build": "tsc",
     "test": "bun test",
@@ -15,21 +18,25 @@
   },
   "keywords": [
     "vitrus",
-    "websocket",
     "actors",
     "agents",
-    "workflows"
+    "workflows",
+    "robotics",
+    "ai",
+    "ai-agents",
+    "ai-workflows",
+    "ai-actors",
+    "ai-agents",
+    "ai-workflows",
+    "ai-actors"
   ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "bun-types": "latest",
-    "typescript": "^5.0.0"
-  },
-  "peerDependencies": {
+    "typescript": "^5.0.0",
     "ws": "^8.0.0"
   },
-  "optionalDependencies": {
-    "ws": "^8.0.0"
-  }
+  "peerDependencies": {},
+  "optionalDependencies": {}
 }
