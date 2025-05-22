@@ -960,9 +960,14 @@ class Vitrus {
     async workflow(workflowName: string, args: any = {}): Promise<any> {
         if (this.debug) console.log('[Vitrus] Running workflow:', { workflowName, args });
 
-        // Automatically authenticate if not authenticated yet (will connect as agent by default)
+        // Preserve existing authentication state - don't force re-auth as agent
         if (!this.authenticated) {
-            await this.authenticate();
+            // If we have a current actor name, re-authenticate as that actor
+            if (this.actorName) {
+                await this.authenticate(this.actorName, this.actorMetadata.get(this.actorName));
+            } else {
+                await this.authenticate(); // Authenticate as agent only if no actor context
+            }
         }
 
         const requestId = this.generateRequestId();
@@ -1012,9 +1017,14 @@ class Vitrus {
     async list_workflows(): Promise<WorkflowDefinition[]> {
         if (this.debug) console.log('[Vitrus] Requesting workflow list with definitions...');
 
-        // Automatically authenticate if not authenticated yet
+        // Preserve existing authentication state - don't force re-auth as agent
         if (!this.authenticated) {
-            await this.authenticate();
+            // If we have a current actor name, re-authenticate as that actor
+            if (this.actorName) {
+                await this.authenticate(this.actorName, this.actorMetadata.get(this.actorName));
+            } else {
+                await this.authenticate(); // Authenticate as agent only if no actor context
+            }
         }
 
         const requestId = this.generateRequestId();
